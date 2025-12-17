@@ -66,13 +66,13 @@ python scripts/experiment.py --trade-amount 2000 --long-vol-etf VIXY --short-vol
 ## Contribution
 
 ### Nathan Banketa
-- Responsible for backtesting and comparing models and analyzing results
-- Files: `src/evaluation.py`, `scripts/compare_models.py`
+- Responsible for backtesting, comparing models, analyzing results, and creating paper trading experiment
+- Files: `src/evaluation.py`, `scripts/compare_models.py`,`scripts/experiment.py`
 
 ### Nick Babukhadia
-- Responsible for creating the models and training them
+- Responsible for creating the models, training them, and analyzing results
 - Files: `src/models/lstm.py`, `src/models/gru.py`, `scripts/train.py`
 
 ### Kwabena Osei-Bonsu
-- Responsible for getting the data, creating the pipeline, and running the baseline GARCH model
+- Responsible for getting the data, creating the pipeline, and running the baseline GARCH model, and analyzing results from GARCH and our models
 - Files: `src/data.py`, `src/models/garch.py`, `scripts/run_baseline.py`, `notebooks/baseline_garch.ipynb`
