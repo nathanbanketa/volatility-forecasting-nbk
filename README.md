@@ -43,6 +43,26 @@ python -c "from src.evaluation import backtest_models; backtest_models('data/SPY
 ```
 This runs backtesting on the trained models.
 
+### Paper Trading Experiment
+
+**Run paper trading experiment:**
+```bash
+python scripts/experiment.py
+```
+This uses the trained LSTM model to predict volatility and generates trading signals for VIXY (long volatility) or SVIX (short volatility) based on whether predicted volatility is higher or lower than current realized volatility.
+
+**Options:**
+- `--model-path`: Path to trained model file (default: `models/lstm_v2_best.pt`)
+- `--trade-amount`: Dollar amount to trade (default: 1000.0)
+- `--long-vol-etf`: Ticker for long volatility ETF (default: VIXY)
+- `--short-vol-etf`: Ticker for short volatility ETF (default: SVIX)
+- `--use-csv`: Use CSV file instead of live data from yfinance
+
+**Example:**
+```bash
+python scripts/experiment.py --trade-amount 2000 --long-vol-etf VIXY --short-vol-etf SVIX
+```
+
 ## Contribution
 
 ### Nathan Banketa
