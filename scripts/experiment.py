@@ -41,6 +41,10 @@ def prepare_features_from_live_data(
     Returns:
         DataFrame with all features ready for model input
     """
+    # Ensure spy_data is a DataFrame with Close column
+    if isinstance(spy_data, pd.Series):
+        spy_data = spy_data.to_frame(name="Close")
+    
     df = pd.DataFrame(index=spy_data.index)
     
     # Calculate returns (log returns to match training if needed, or pct_change)
@@ -54,8 +58,9 @@ def prepare_features_from_live_data(
     df["realized_vol_lag1"] = df["realized_vol"].shift(1)
     
     # Add VIX (lowercase 'vix' to match training)
-    vix_aligned = vix_series.reindex(df.index)
-    df["vix"] = vix_aligned.ffill()
+    # Ensure timezone alignment
+    vix_aligned = vix_series.reindex(df.index, method='ffill')
+    df["vix"] = vix_aligned
     
     # Drop rows with NaN
     df = df.dropna()
@@ -80,6 +85,11 @@ def get_scaler_statistics(
         Tuple of (mean, std) for feature normalization
     """
     split_ts = pd.to_datetime(split_date)
+    
+    # Handle timezone: if df index is timezone-aware, make split_ts timezone-aware too
+    if df.index.tz is not None:
+        split_ts = split_ts.tz_localize(df.index.tz)
+    
     train_df = df[df.index < split_ts].copy()
     
     if len(train_df) < seq_window:
@@ -130,16 +140,24 @@ def predict_volatility(
         raise ValueError(f"Need at least {seq_window} rows of data for prediction.")
     
     # Get last sequence
-    last_sequence = df[feature_cols].tail(seq_window).values
+    last_sequence = df[feature_cols].tail(seq_window).values  # Shape: (seq_window, num_features)
     
-    # Normalize
-    last_sequence_norm = (last_sequence - feature_mean) / feature_std
+    # Squeeze extra dimensions from normalization stats if present
+    # feature_mean and feature_std might be (1, 1, num_features) from keepdims=True
+    if feature_mean.ndim > 1:
+        feature_mean = feature_mean.squeeze()
+    if feature_std.ndim > 1:
+        feature_std = feature_std.squeeze()
+    
+    # Normalize: last_sequence is (seq_window, num_features), stats are (num_features,)
+    last_sequence_norm = (last_sequence - feature_mean) / feature_std  # Shape: (seq_window, num_features)
     
     # Convert to tensor and add batch dimension
+    # Shape: (seq_window, num_features) -> (1, seq_window, num_features) for batch_first=True
     input_tensor = torch.tensor(
         last_sequence_norm,
         dtype=torch.float32
-    ).unsqueeze(0).to(device)
+    ).unsqueeze(0).to(device)  # Shape: (1, seq_window, num_features)
     
     # Predict
     model.eval()
@@ -223,19 +241,28 @@ def run_paper_trading_experiment(
     if use_live_data:
         print("Fetching live market data...")
         spy_ticker = yf.Ticker("SPY")
-        spy_data = spy_ticker.history(start="2010-01-01", progress=False)
+        spy_data = spy_ticker.history(start="2010-01-01")
         
-        if "Close" not in spy_data.columns:
+        # Ensure we have a DataFrame with 'Close' column
+        if isinstance(spy_data, pd.Series):
+            spy_data = spy_data.to_frame(name="Close")
+        elif "Close" not in spy_data.columns:
             # Handle multi-index if present
             if isinstance(spy_data.columns, pd.MultiIndex):
-                spy_data = spy_data["Close"]
+                spy_data = spy_data["Close"].to_frame()
             else:
-                spy_data = spy_data.iloc[:, 0]  # Take first column
+                spy_data = spy_data.iloc[:, [0]].rename(columns={spy_data.columns[0]: "Close"})
         
         # Get VIX data
         start_date = spy_data.index.min()
         end_date = spy_data.index.max()
         vix_series = _fetch_vix_series(start_date, end_date)
+        
+        # Ensure VIX series has same timezone as SPY data
+        if spy_data.index.tz is not None and vix_series.index.tz is None:
+            vix_series.index = vix_series.index.tz_localize(spy_data.index.tz)
+        elif spy_data.index.tz is None and vix_series.index.tz is not None:
+            vix_series.index = vix_series.index.tz_localize(None)
         
         print(f"Loaded {len(spy_data)} days of SPY data")
         print(f"Date range: {spy_data.index[0].date()} to {spy_data.index[-1].date()}")
@@ -328,7 +355,7 @@ def run_paper_trading_experiment(
     volatility_expanding = predicted_vol > current_realized_vol
     
     if volatility_expanding:
-        print("📈 SIGNAL: VOLATILITY EXPANDING")
+        print("SIGNAL: VOLATILITY EXPANDING")
         print("   → Model predicts volatility will increase")
         print("   → Strategy: Long Volatility (Buy VIXY)")
         print()
@@ -339,9 +366,9 @@ def run_paper_trading_experiment(
             print(f"Shares to Buy: {shares:.4f}")
             print(f"Total Cost: ${shares * vixy_price:.2f}")
         else:
-            print(f"⚠️  Could not fetch {long_vol_etf} price")
+            print(f"Could not fetch {long_vol_etf} price")
     else:
-        print("📉 SIGNAL: VOLATILITY CONTRACTING")
+        print("SIGNAL: VOLATILITY CONTRACTING")
         print("   → Model predicts volatility will decrease")
         print("   → Strategy: Short Volatility (Buy SVIX)")
         print()
@@ -352,7 +379,7 @@ def run_paper_trading_experiment(
             print(f"Shares to Buy: {shares:.4f}")
             print(f"Total Cost: ${shares * svix_price:.2f}")
         else:
-            print(f"⚠️  Could not fetch {short_vol_etf} price")
+            print(f"Could not fetch {short_vol_etf} price")
     
     print(f"\n{'='*60}")
     print("EXPERIMENT COMPLETE")
